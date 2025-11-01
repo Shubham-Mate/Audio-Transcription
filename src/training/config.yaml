@@ -1,0 +1,6 @@
+data:
+  text:
+    max_length: 100
+
+  audio:
+    max_length: 1500
