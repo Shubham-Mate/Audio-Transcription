@@ -1,6 +1,20 @@
-from torch.utils.data import dataloader
+from torch.utils.data import DataLoader, random_split
+import torch
 import pathlib
+from tqdm import tqdm
 from .dataloader import ASRDataset
+from .config import load_config
+from ..model.model import TransformerModel
+
+config = load_config()
+DATA_SPLIT = config["training"]["split"]
+HYPERPARAMETERS = config["training"]["hyperparameters"]
+MODEL_PARAMETERS = config["training"]["model_parameters"]
+
+SEED = 42
+torch.manual_seed(SEED)
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 PREPROCESSED_PATH = (
     pathlib.Path(__file__).parent.parent.parent / "data" / "preprocessed"
@@ -13,14 +27,111 @@ TOKENIZER_MODEL_FILE_PATH = (
     / "sentencepiece_tokenizer.model"
 )
 
+
+def train_batch(model, batch, optimizer, criterion, device):
+    """
+    Train the model on a single batch.
+    batch: tuple of (mel_fbanks, mel_mask, tokens, token_mask)
+    """
+    mel_fbanks, mel_mask, tokens, token_mask = batch
+    mel_fbanks = mel_fbanks.to(device)
+    mel_mask = mel_mask.to(device)
+    tokens = tokens.to(device)
+    token_mask = token_mask.to(device)
+
+    optimizer.zero_grad()
+
+    # Assuming decoder input is tokens without last token, target is tokens without first
+    decoder_input = tokens[:, :-1]
+    target_tokens = tokens[:, 1:]
+
+    # Forward pass
+    logits = model(
+        encoder_inp=mel_fbanks, decoder_inp=decoder_input, encoder_mask=mel_mask
+    )  # adapt if you also pass masks
+
+    # Compute loss (flatten batch and sequence dims)
+    batch_size, seq_len, vocab_size = logits.size()
+    loss = criterion(
+        logits.view(batch_size * seq_len, vocab_size),
+        target_tokens.view(batch_size * seq_len),
+    )
+
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+    optimizer.step()
+
+    return loss.item()
+
+
 asr_dataset = ASRDataset(
     csv_file_path=SENTENCE_CSV_PATH,
     preprocess_file_path=PREPROCESSED_PATH,
     tokenizer_file_path=TOKENIZER_MODEL_FILE_PATH,
 )
 
-point = asr_dataset[5]
-print(point[0].size(), point[1].size(), point[2].size(), point[3].size())
+train_dataset, val_dataset, test_dataset = random_split(
+    asr_dataset,
+    [DATA_SPLIT["train"], DATA_SPLIT["val"], DATA_SPLIT["test"]],
+)
 
-for i in range(4):
-    print(point[i])
+train_dataloader = DataLoader(
+    dataset=train_dataset,
+    batch_size=HYPERPARAMETERS["batch_size"],
+    shuffle=True,
+    num_workers=4,
+    pin_memory=True,
+    drop_last=True,
+)
+val_dataloader = DataLoader(
+    dataset=val_dataset,
+    batch_size=HYPERPARAMETERS["batch_size"],
+    shuffle=True,
+    num_workers=4,
+    pin_memory=True,
+    drop_last=True,
+)
+test_dataloader = DataLoader(
+    dataset=test_dataset,
+    batch_size=HYPERPARAMETERS["batch_size"],
+    shuffle=True,
+    num_workers=4,
+    pin_memory=True,
+    drop_last=True,
+)
+
+# Setup model, loss function, optimizer for training
+model = TransformerModel(
+    vocab_size=20000,
+    inp_dims=80,
+    out_dims=512,
+    num_heads=MODEL_PARAMETERS["num_heads"],
+    num_blocks=MODEL_PARAMETERS["num_blocks"],
+).to(DEVICE)
+
+criterion = torch.nn.CrossEntropyLoss(ignore_index=0)
+optimizer = torch.optim.Adam(model.parameters(), lr=HYPERPARAMETERS["learning_rate"])
+
+for epoch in range(1, HYPERPARAMETERS["epochs"] + 1):
+    model.train()
+    running_loss = 0.0
+    train_bar = tqdm(
+        train_dataloader, desc=f"Epoch {epoch}/{HYPERPARAMETERS['epochs']}", leave=False
+    )
+
+    for batch_idx, batch in enumerate(train_bar, start=1):
+        loss = train_batch(
+            model=model,
+            batch=batch,
+            optimizer=optimizer,
+            criterion=criterion,
+            device=DEVICE,
+        )
+
+        running_loss += loss
+        if batch_idx % HYPERPARAMETERS.get("log_interval", 10) == 0:
+            avg_loss_sofar = running_loss / batch_idx
+            train_bar.set_postfix(loss=f"{avg_loss_sofar:.4f}")
+
+    epoch_loss = running_loss / len(train_dataloader)
+    print(f"Epoch {epoch}/{HYPERPARAMETERS['epochs']} — Avg Loss: {epoch_loss}")

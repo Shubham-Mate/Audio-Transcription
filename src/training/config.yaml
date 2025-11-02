@@ -4,3 +4,18 @@ data:
 
   audio:
     max_length: 1500
+
+training:
+  model_parameters:
+    num_heads: 8
+    num_blocks: 4
+
+  hyperparameters:
+    learning_rate: 0.01
+    batch_size: 32
+    epochs: 20
+
+  split:
+    train: 0.5
+    test: 0.25
+    val: 0.25

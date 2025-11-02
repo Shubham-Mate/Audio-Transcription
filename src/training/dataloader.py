@@ -54,7 +54,7 @@ class ASRDataset(Dataset):
 
         return (
             padded_mel_filter_bank,
-            mel_mask.long(),
+            mel_mask,
             tokenized.long(),
             token_mask.long(),
         )
