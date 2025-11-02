@@ -50,7 +50,6 @@ class Decoder(torch.nn.Module):
         )
         self.output_layer = torch.nn.Sequential(
             torch.nn.Linear(in_features=out_dims, out_features=vocab_size),
-            torch.nn.Softmax(dim=-1),
         )
 
     def forward(self, x, encoder_output):

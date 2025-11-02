@@ -2,6 +2,7 @@ from torch.utils.data import DataLoader, random_split
 from torch.cuda.amp import autocast, GradScaler
 import torch
 import pathlib
+import glob
 from tqdm import tqdm
 from .dataloader import ASRDataset
 from .config import load_config
@@ -122,7 +123,17 @@ model = TransformerModel(
 criterion = torch.nn.CrossEntropyLoss(ignore_index=0)
 optimizer = torch.optim.Adam(model.parameters(), lr=HYPERPARAMETERS["learning_rate"])
 
-for epoch in range(1, HYPERPARAMETERS["epochs"] + 1):
+epoch = 0
+if len(glob.glob(str(CHECKPOINT_DIR / "*.pt"))) == 0:
+    epoch = 0
+else:
+    last_checkpoint_path = glob.glob(str(CHECKPOINT_DIR / "*.pt"))[-1]
+    checkpoint = torch.load(last_checkpoint_path, map_location=DEVICE)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    epoch = checkpoint["epoch"] + 1
+
+while epoch < HYPERPARAMETERS["epochs"] + 1:
     model.train()
     running_loss = 0.0
     train_bar = tqdm(
@@ -154,3 +165,4 @@ for epoch in range(1, HYPERPARAMETERS["epochs"] + 1):
         },
         str(CHECKPOINT_DIR / f"checkpoint_epoch_{epoch}.pt"),
     )
+    epoch += 1
