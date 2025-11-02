@@ -21,10 +21,15 @@ class TransformerDecoderBlock(torch.nn.Module):
         )
 
     def forward(self, x, encoder_output, casual_mask=True):
-        attn_out, _ = self.self_multi_head_attn(x, x, x, casual_mask=casual_mask)
+        mask = torch.nn.Transformer.generate_square_subsequent_mask(x.size()[1]).to(
+            x.device
+        )
+        attn_out, _ = self.self_multi_head_attn(
+            x, x, x, attn_mask=mask, is_causal=casual_mask
+        )
         attn_out = self.norm_1(x + attn_out)
         cross_attn_out, _ = self.cross_multi_head_attn(
-            encoder_output, encoder_output, attn_out
+            value=encoder_output, key=encoder_output, query=attn_out
         )
         cross_attn_out = self.norm_2(attn_out + cross_attn_out)
         ff_out = self.ff(cross_attn_out)
@@ -43,11 +48,9 @@ class Decoder(torch.nn.Module):
         self.decoder_blocks = torch.nn.ModuleList(
             [TransformerDecoderBlock(out_dims, num_heads) for i in range(num_blocks)]
         )
-        self.output_layer = torch.nn.ModuleList(
-            [
-                torch.nn.Linear(in_features=out_dims, out_features=vocab_size),
-                torch.nn.Softmax(dim=vocab_size),
-            ]
+        self.output_layer = torch.nn.Sequential(
+            torch.nn.Linear(in_features=out_dims, out_features=vocab_size),
+            torch.nn.Softmax(dim=-1),
         )
 
     def forward(self, x, encoder_output):

@@ -1,6 +1,6 @@
 data:
   text:
-    max_length: 100
+    max_length: 50
 
   audio:
     max_length: 1500
@@ -8,11 +8,12 @@ data:
 training:
   model_parameters:
     num_heads: 8
-    num_blocks: 4
+    num_blocks: 2
+    intermediate_dims: 256
 
   hyperparameters:
     learning_rate: 0.01
-    batch_size: 32
+    batch_size: 8
     epochs: 20
 
   split:
