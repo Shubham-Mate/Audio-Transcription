@@ -1,3 +1,4 @@
-./data/
-./outputs/
-./venv/
+data/
+outputs/
+venv/
+__pycache__/
