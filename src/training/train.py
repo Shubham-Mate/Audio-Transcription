@@ -132,6 +132,7 @@ criterion = torch.nn.CrossEntropyLoss(ignore_index=0)
 optimizer = torch.optim.Adam(model.parameters(), lr=HYPERPARAMETERS["learning_rate"])
 
 epoch = 0
+best_val_loss = float("inf")
 if len(glob.glob(str(CHECKPOINT_DIR / "*.pt"))) == 0:
     epoch = 0
 else:
@@ -142,6 +143,8 @@ else:
     model.load_state_dict(checkpoint["model_state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     epoch = checkpoint["epoch"] + 1
+    if "best_val_loss" in checkpoint:
+        best_val_loss = checkpoint["best_val_loss"]
 
 while epoch < HYPERPARAMETERS["epochs"] + 1:
     # --------------------------------- Training ----------------------------------------- #
@@ -168,18 +171,6 @@ while epoch < HYPERPARAMETERS["epochs"] + 1:
 
     epoch_loss = running_loss / len(train_dataloader)
     # print(f"Epoch {epoch}/{HYPERPARAMETERS['epochs']} — Avg Loss: {epoch_loss}")
-
-    # ---------------------------------- Checkpointing -------------------------------------- #
-
-    torch.save(
-        {
-            "epoch": epoch,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "train_loss": epoch_loss,
-        },
-        str(CHECKPOINT_DIR / f"checkpoint_epoch_{epoch}.pt"),
-    )
 
     # --------------------------------- Validation ----------------------------------------- #
 
@@ -208,5 +199,27 @@ while epoch < HYPERPARAMETERS["epochs"] + 1:
         f"Epoch {epoch}/{HYPERPARAMETERS['epochs']} — "
         f"Train Loss: {epoch_loss} | Val Loss: {epoch_val_loss}"
     )
+
+    # -------------------------------Saving best model--------------------------------------- #
+
+    if epoch_val_loss < best_val_loss:
+        best_val_loss = epoch_val_loss
+        torch.save(model.state_dict(), MODEL_SAVE_DIR / "best_model.pt")
+
+    # ---------------------------------- Checkpointing -------------------------------------- #
+
+    torch.save(
+        {
+            "epoch": epoch,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "train_loss": epoch_loss,
+            "val_loss": epoch_val_loss,
+            "best_val_loss": best_val_loss,
+        },
+        str(CHECKPOINT_DIR / f"checkpoint_epoch_{epoch}.pt"),
+    )
+
+    # --------------------------------------------------------------------------------------- #
 
     epoch += 1
