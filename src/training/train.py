@@ -1,8 +1,9 @@
 from torch.utils.data import DataLoader, random_split
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 import torch
 import pathlib
 import glob
+import re
 from tqdm import tqdm
 from .dataloader import ASRDataset
 from .config import load_config
@@ -20,6 +21,7 @@ torch.manual_seed(SEED)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info(f"Loaded device: {DEVICE}")
 
+MODEL_SAVE_DIR = pathlib.Path(__file__).parent.parent.parent / "outputs" / "model"
 CHECKPOINT_DIR = (
     pathlib.Path(__file__).parent.parent.parent / "outputs" / "model_checkpoints"
 )
@@ -34,13 +36,19 @@ TOKENIZER_MODEL_FILE_PATH = (
     / "sentencepiece_tokenizer.model"
 )
 
+scaler = GradScaler()
 
-def train_batch(model, batch, optimizer, criterion, device):
+
+def extract_epoch(path):
+    match = re.search(r"checkpoint_epoch_(\d+)\.pt", str(path))
+    return int(match.group(1)) if match else -1
+
+
+def train_batch(model, batch, optimizer, criterion, device, train_mode=True):
     """
     Train the model on a single batch.
     batch: tuple of (mel_fbanks, mel_mask, tokens, token_mask)
     """
-    scaler = GradScaler()
 
     mel_fbanks, mel_mask, tokens, token_mask = batch
     mel_fbanks = mel_fbanks.to(device)
@@ -55,7 +63,7 @@ def train_batch(model, batch, optimizer, criterion, device):
     target_tokens = tokens[:, 1:]
 
     # Forward pass
-    with autocast():
+    with autocast(device_type=device.type, enabled=(device.type == "cuda")):
         logits = model(
             encoder_inp=mel_fbanks, decoder_inp=decoder_input, encoder_mask=mel_mask
         )  # adapt if you also pass masks
@@ -67,10 +75,10 @@ def train_batch(model, batch, optimizer, criterion, device):
             target_tokens.reshape(batch_size * seq_len),
         )
 
-    scaler.scale(loss).backward()
-    scaler.step(optimizer)
-    scaler.update()
-    optimizer.zero_grad(set_to_none=True)
+    if train_mode:
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
 
     return loss.item()
 
@@ -127,13 +135,17 @@ epoch = 0
 if len(glob.glob(str(CHECKPOINT_DIR / "*.pt"))) == 0:
     epoch = 0
 else:
-    last_checkpoint_path = glob.glob(str(CHECKPOINT_DIR / "*.pt"))[-1]
+    last_checkpoint_path = max(
+        glob.glob(str(CHECKPOINT_DIR / "*.pt")), key=extract_epoch
+    )
     checkpoint = torch.load(last_checkpoint_path, map_location=DEVICE)
     model.load_state_dict(checkpoint["model_state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     epoch = checkpoint["epoch"] + 1
 
 while epoch < HYPERPARAMETERS["epochs"] + 1:
+    # --------------------------------- Training ----------------------------------------- #
+
     model.train()
     running_loss = 0.0
     train_bar = tqdm(
@@ -155,7 +167,10 @@ while epoch < HYPERPARAMETERS["epochs"] + 1:
             train_bar.set_postfix(loss=f"{avg_loss_sofar}")
 
     epoch_loss = running_loss / len(train_dataloader)
-    print(f"Epoch {epoch}/{HYPERPARAMETERS['epochs']} — Avg Loss: {epoch_loss}")
+    # print(f"Epoch {epoch}/{HYPERPARAMETERS['epochs']} — Avg Loss: {epoch_loss}")
+
+    # ---------------------------------- Checkpointing -------------------------------------- #
+
     torch.save(
         {
             "epoch": epoch,
@@ -165,4 +180,33 @@ while epoch < HYPERPARAMETERS["epochs"] + 1:
         },
         str(CHECKPOINT_DIR / f"checkpoint_epoch_{epoch}.pt"),
     )
+
+    # --------------------------------- Validation ----------------------------------------- #
+
+    model.eval()
+    val_running_loss = 0.0
+    with torch.no_grad():
+        val_bar = tqdm(
+            val_dataloader,
+            desc=f"Epoch {epoch}/{HYPERPARAMETERS['epochs']} (Validation)",
+            leave=False,
+        )
+        for batch in val_bar:
+            val_loss = train_batch(  # reuse function but w/o backward pass
+                model=model,
+                batch=batch,
+                optimizer=optimizer,  # skip optimizer step
+                criterion=criterion,
+                device=DEVICE,
+                train_mode=False,
+            )
+            val_running_loss += val_loss
+
+    epoch_val_loss = val_running_loss / len(val_dataloader)
+
+    print(
+        f"Epoch {epoch}/{HYPERPARAMETERS['epochs']} — "
+        f"Train Loss: {epoch_loss} | Val Loss: {epoch_val_loss}"
+    )
+
     epoch += 1
