@@ -44,21 +44,16 @@ class TransformerModel(torch.nn.Module):
 
         # Start with batch of start tokens
         batch_size = encoder_inp.size(0)
+
         generated = torch.full(
-            (batch_size, 1), start_token, dtype=torch.long, device=device
+            (batch_size, max_len), start_token, dtype=torch.long, device=device
         )
-
-        for _ in range(max_len):
-            # Pass current generated sequence through decoder
-            out = self.decoder(generated, encoder_output)
-            logits = out[:, -1, :]  # last token prediction
-            next_token = torch.argmax(logits, dim=-1, keepdim=True)
-
-            # Append next token
-            generated = torch.cat([generated, next_token], dim=1)
-
-            # Stop if all sequences reached end token
-            if torch.all(next_token.squeeze() == end_token):
+        for i in range(1, max_len):
+            out = self.decoder(generated[:, :i], encoder_output)
+            logits = out[:, -1, :]
+            next_token = torch.argmax(logits, dim=-1)
+            generated[:, i] = next_token
+            if torch.all(next_token == end_token):
                 break
 
         return generated

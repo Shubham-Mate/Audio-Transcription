@@ -14,9 +14,9 @@ training:
   hyperparameters:
     learning_rate: 0.0001
     batch_size: 8
-    epochs: 20
+    epochs: 30
 
   split:
-    train: 0.5
-    test: 0.25
+    train: 0.25
+    test: 0.5
     val: 0.25
