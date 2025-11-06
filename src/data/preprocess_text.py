@@ -1,9 +1,15 @@
-from ..utils import logger
 import polars
 import glob
 import pathlib
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from ..utils.paths import (
+    PREPROCESSED_PATH,
+    SENTENCE_CSV_PATH,
+    LIBRISPEECH_DIR,
+    COMMON_VOICE_DIR,
+)
+from ..utils import logger
 
 
 def generate_csv_from_txt_file(txt_file_path):
@@ -43,10 +49,6 @@ def preprocess_tsv(tsv_file_path):
 
 NUM_WORKERS = 8
 
-# Generate aggregated csv for common voice
-COMMON_VOICE_DIR = (
-    pathlib.Path(__file__).parent.parent.parent / "data" / "raw" / "common_voice"
-)
 
 validated_tsv_paths = glob.glob(
     str(COMMON_VOICE_DIR / "**" / "validated.tsv"), recursive=True
@@ -65,10 +67,6 @@ with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
 
 
 # Generate aggregated csv for librispeech
-LIBRISPEECH_DIR = (
-    pathlib.Path(__file__).parent.parent.parent / "data" / "raw" / "librispeech"
-)
-
 librispeech_txt_paths = glob.glob(
     str(LIBRISPEECH_DIR / "**" / "**" / "*.txt"), recursive=True
 )
@@ -87,7 +85,4 @@ with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
 aggregated_dfs = common_voice_dfs + librispeech_dfs
 aggregated_dfs = polars.concat(aggregated_dfs)
 
-OUTPUT_DIR = pathlib.Path(__file__).parent.parent.parent / "data" / "preprocessed"
-OUTPUT_FILE = "sentence.csv"
-
-aggregated_dfs.write_csv(OUTPUT_DIR / OUTPUT_FILE, separator="\t")
+aggregated_dfs.write_csv(SENTENCE_CSV_PATH, separator="\t")

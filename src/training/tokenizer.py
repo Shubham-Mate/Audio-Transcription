@@ -1,4 +1,5 @@
 import sentencepiece
+import torch
 import pathlib
 from .config import load_config
 
@@ -31,3 +32,13 @@ class Tokenizer:
         padded_tokenized = self.add_pad_tokens(tokenized, max_len=max_len)
 
         return padded_tokenized
+
+    def detokenize(self, tokens):
+        # If torch.Tensor, convert to list of ints
+        if isinstance(tokens, torch.Tensor):
+            tokens = tokens.cpu().tolist()
+        # If it's a batch of sequences, decode each
+        if isinstance(tokens[0], list) or isinstance(tokens[0], (tuple,)):
+            return [self.tokenizer.decode_ids(seq) for seq in tokens]
+        # Single sequence
+        return self.tokenizer.decode_ids(tokens)

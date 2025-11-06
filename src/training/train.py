@@ -1,7 +1,6 @@
 from torch.utils.data import DataLoader, random_split
 from torch.amp import autocast, GradScaler
 import torch
-import pathlib
 import glob
 import re
 from tqdm import tqdm
@@ -9,6 +8,13 @@ from .dataloader import ASRDataset
 from .config import load_config
 from ..model.model import TransformerModel
 from ..utils import logger
+from ..utils.paths import (
+    MODEL_SAVE_DIR,
+    CHECKPOINT_DIR,
+    PREPROCESSED_PATH,
+    SENTENCE_CSV_PATH,
+    TOKENIZER_MODEL_FILE_PATH,
+)
 
 config = load_config()
 DATA_SPLIT = config["training"]["split"]
@@ -20,21 +26,6 @@ torch.manual_seed(SEED)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info(f"Loaded device: {DEVICE}")
-
-MODEL_SAVE_DIR = pathlib.Path(__file__).parent.parent.parent / "outputs" / "model"
-CHECKPOINT_DIR = (
-    pathlib.Path(__file__).parent.parent.parent / "outputs" / "model_checkpoints"
-)
-PREPROCESSED_PATH = (
-    pathlib.Path(__file__).parent.parent.parent / "data" / "preprocessed"
-)
-SENTENCE_CSV_PATH = PREPROCESSED_PATH / "sentence.csv"
-TOKENIZER_MODEL_FILE_PATH = (
-    pathlib.Path(__file__).parent.parent.parent
-    / "outputs"
-    / "tokenizer"
-    / "sentencepiece_tokenizer.model"
-)
 
 scaler = GradScaler()
 
@@ -223,3 +214,30 @@ while epoch < HYPERPARAMETERS["epochs"] + 1:
     # --------------------------------------------------------------------------------------- #
 
     epoch += 1
+
+model.load_state_dict(
+    torch.load(MODEL_SAVE_DIR / "best_model_2.pt", map_location=DEVICE)
+)
+
+model.eval()
+test_running_loss = 0.0
+with torch.no_grad():
+    test_bar = tqdm(
+        test_dataloader,
+        desc="(Testing)",
+        leave=False,
+    )
+    for batch in test_bar:
+        test_loss = train_batch(  # reuse function but w/o backward pass
+            model=model,
+            batch=batch,
+            optimizer=optimizer,  # skip optimizer step
+            criterion=criterion,
+            device=DEVICE,
+            train_mode=False,
+        )
+        test_running_loss += test_loss
+
+epoch_test_loss = test_running_loss / len(test_dataloader)
+
+print(f"Test Loss: {epoch_test_loss}")

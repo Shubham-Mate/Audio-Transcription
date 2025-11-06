@@ -47,7 +47,7 @@ asr_dataset = ASRDataset(
     tokenizer_file_path=TOKENIZER_MODEL_FILE_PATH,
 )
 logger.info("Initialiased the dataset")
-mel, mel_mask, tok, tok_mask = asr_dataset[0]
+mel, mel_mask, tok, tok_mask = asr_dataset[-1]
 
 mel = mel.unsqueeze(0).to(DEVICE)
 mel_mask = mel_mask.unsqueeze(0).to(DEVICE)
@@ -61,10 +61,8 @@ with torch.no_grad():
     out_2 = model(mel, tok, mel_mask)
     out_2 = torch.argmax(out_2, dim=-1)
 logger.info("Obtained the output")
-print(out[0])
 print(tok)
 print(out_2[0])
 
 print(tokenizer.detokenize(tok.cpu().numpy().tolist()))
-print(tokenizer.detokenize(out[0].cpu().numpy().tolist()))
 print(tokenizer.detokenize(out_2[0].cpu().numpy().tolist()))

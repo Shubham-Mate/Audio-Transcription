@@ -1,8 +1,7 @@
 import pathlib
 from typing import Dict
 import yaml
-
-CONFIG_PATH = pathlib.Path(__file__).parent / "config.yaml"
+from ..utils.paths import CONFIG_PATH
 
 
 def load_config() -> Dict:
